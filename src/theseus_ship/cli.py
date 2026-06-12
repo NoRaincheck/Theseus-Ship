@@ -1,0 +1,103 @@
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+from pathlib import Path
+
+from theseus_ship.grammar import detect_language, load_grammar
+from theseus_ship.reducer import Reducer
+
+
+def parse_duration(s: str) -> float:
+    m = re.fullmatch(r"(\d+)(s|m|h)", s)
+    if m is None:
+        msg = f"Invalid duration: {s!r} (use e.g. 30s, 5m, 1h)"
+        raise argparse.ArgumentTypeError(msg)
+    value, unit = int(m.group(1)), m.group(2)
+    return value * {"s": 1, "m": 60, "h": 3600}[unit]
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="theseus-ship",
+        description="Syntax-guided program reduction (Perses algorithm)",
+    )
+    parser.add_argument("input", help="Source file to reduce")
+    parser.add_argument("--test", required=True, help="Interestingness test command")
+    parser.add_argument("--lang", help="Override language detection")
+    parser.add_argument(
+        "-o", "--output", help="Output file path (default: overwrite input)"
+    )
+    parser.add_argument(
+        "--max-time", type=parse_duration, help="Maximum reduction time (e.g. 30m, 1h)"
+    )
+    parser.add_argument("--max-tests", type=int, help="Maximum test invocations")
+    parser.add_argument(
+        "-j", "--jobs", type=int, default=1, help="Parallel test workers"
+    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+    parser.add_argument("-q", "--quiet", action="store_true", help="Suppress output")
+    return parser.parse_args(argv)
+
+
+def _format_time(seconds: float) -> str:
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes = int(seconds // 60)
+    secs = int(seconds % 60)
+    return f"{minutes}m {secs}s"
+
+
+def main() -> None:
+    args = parse_args()
+    sys.exit(_run(args))
+
+
+def _run(args: argparse.Namespace) -> int:
+    input_path = Path(args.input)
+    if not input_path.exists():
+        print(f"Error: file not found: {input_path}", file=sys.stderr)
+        return 1
+
+    try:
+        source = input_path.read_bytes()
+    except OSError as e:
+        print(f"Error reading {input_path}: {e}", file=sys.stderr)
+        return 1
+
+    lang = args.lang or detect_language(str(input_path))
+    grammar = load_grammar(lang)
+
+    output_path = Path(args.output) if args.output else input_path
+
+    reducer = Reducer(
+        grammar=grammar,
+        test_command=args.test,
+        max_time=args.max_time,
+        max_tests=args.max_tests,
+        jobs=args.jobs,
+        verbose=args.verbose,
+        quiet=args.quiet,
+    )
+
+    original_size = len(source)
+    result = reducer.reduce(source)
+    reduced_size = len(result.source)
+
+    try:
+        output_path.write_bytes(result.source)
+    except OSError as e:
+        print(f"Error writing {output_path}: {e}", file=sys.stderr)
+        return 1
+
+    if not args.quiet:
+        pct = (1 - reduced_size / original_size) * 100 if original_size > 0 else 0
+        print(
+            f"Reduced {original_size} -> {reduced_size} bytes "
+            f"({pct:.0f}% reduction) in {_format_time(result.elapsed_seconds)} "
+            f"({result.tests_run} tests)",
+            file=sys.stderr,
+        )
+
+    return 0
