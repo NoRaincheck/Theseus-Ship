@@ -5,18 +5,19 @@ from pathlib import Path
 
 import pytest
 
-from theseus_ship.shrink import ShrinkCache, ShrinkReducer, run_shrink
+from theseus_ship.cache import Cache
+from theseus_ship.shrink import ShrinkReducer, run_shrink
 
 
 class TestShrinkCache:
     def test_hit_miss(self) -> None:
-        cache = ShrinkCache()
+        cache = Cache()
         assert cache.get(b"hello") is None
         cache.set(b"hello", True)
         assert cache.get(b"hello") is True
 
     def test_deterministic(self) -> None:
-        cache = ShrinkCache()
+        cache = Cache()
         cache.set(b"test data", False)
         assert cache.get(b"test data") is False
         assert cache.get(b"different") is None

@@ -61,6 +61,7 @@ class TestParseResult:
             root_node=root,
             all_nodes=nodes,
             error_node_count=0,
+            tree=None,
         )
         assert result.source_bytes == b"source"
         assert result.error_node_count == 0

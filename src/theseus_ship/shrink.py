@@ -8,6 +8,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 
+from theseus_ship.cache import Cache
 from theseus_ship.grammar import Grammar, detect_language, load_grammar
 from theseus_ship.parser import parse_source
 from theseus_ship.transforms import apply_transform, generate_candidates
@@ -19,17 +20,6 @@ class ShrinkResult:
     tests_run: int
     elapsed_seconds: float
     output_path: str | None
-
-
-class ShrinkCache:
-    def __init__(self) -> None:
-        self._results: dict[int, bool] = {}
-
-    def get(self, source: bytes) -> bool | None:
-        return self._results.get(hash(source))
-
-    def set(self, source: bytes, result: bool) -> None:
-        self._results[hash(source)] = result
 
 
 class ShrinkReducer:
@@ -59,7 +49,7 @@ class ShrinkReducer:
         self._parallelism = parallelism
         self._verbose = verbose
         self._quiet = quiet
-        self._cache = ShrinkCache()
+        self._cache = Cache()
         self._tests_run = 0
 
     def reduce(

@@ -1,10 +1,11 @@
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
 from theseus_ship.grammar import load_grammar
-from theseus_ship.reducer import ReduceResult, Reducer, _Cache
+from theseus_ship.cache import Cache
+from theseus_ship.reducer import ReduceResult, Reducer
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -12,13 +13,13 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 class TestCache:
     def test_hit_miss(self) -> None:
-        cache = _Cache()
+        cache = Cache()
         assert cache.get(b"hello") is None
         cache.set(b"hello", True)
         assert cache.get(b"hello") is True
 
     def test_deterministic(self) -> None:
-        cache = _Cache()
+        cache = Cache()
         cache.set(b"test data", False)
         assert cache.get(b"test data") is False
         assert cache.get(b"different") is None
@@ -135,6 +136,24 @@ class TestReduce:
             pass
 
 
+class TestProgressReporting:
+    def test_progress_printed_when_not_quiet(self) -> None:
+        grammar = load_grammar("python")
+        source = b"def foo(): pass\ndef bar(): pass\n"
+        reducer = Reducer(grammar, auto=True, quiet=False)
+        with patch("theseus_ship.reducer.print") as mock_print:
+            reducer.reduce(source)
+            assert mock_print.call_count > 0
+
+    def test_progress_suppressed_when_quiet(self) -> None:
+        grammar = load_grammar("python")
+        source = b"def foo(): pass\ndef bar(): pass\n"
+        reducer = Reducer(grammar, auto=True, quiet=True)
+        with patch("theseus_ship.reducer.print") as mock_print:
+            reducer.reduce(source)
+            mock_print.assert_not_called()
+
+
 class TestAutoMode:
     def test_no_test_required(self) -> None:
         grammar = load_grammar("python")
@@ -169,3 +188,76 @@ class TestAutoMode:
         result = reducer.reduce(source)
         assert result.source == source
         assert result.tests_run > 0
+
+
+class TestStrictMode:
+    def test_strict_rejects_transforms_with_errors(self) -> None:
+        grammar = load_grammar("python")
+        source = b"def foo(): pass\ndef bar(): pass\n"
+        reducer = Reducer(
+            grammar, test_command="true", strict=True, quiet=True
+        )
+        result = reducer.reduce(source)
+        from theseus_ship.parser import parse_source
+
+        final = parse_source(result.source, grammar)
+        assert final.error_node_count == 0
+
+    def test_non_strict_allows_maintaining_error_count(self) -> None:
+        grammar = load_grammar("python")
+        source = b"def (broken:\n"
+        reducer = Reducer(
+            grammar, test_command="true", strict=False, quiet=True
+        )
+        result = reducer.reduce(source)
+        from theseus_ship.parser import parse_source
+
+        final = parse_source(result.source, grammar)
+        assert final.error_node_count > 0
+
+    def test_strict_stores_flag(self) -> None:
+        grammar = load_grammar("python")
+        reducer = Reducer(grammar, test_command="true", strict=True)
+        assert reducer._strict is True
+
+    def test_non_strict_default(self) -> None:
+        grammar = load_grammar("python")
+        reducer = Reducer(grammar, test_command="true")
+        assert reducer._strict is False
+
+
+class TestParallel:
+    def test_parallel_same_as_sequential(self) -> None:
+        grammar = load_grammar("python")
+        source = b"def foo(): pass\ndef bar(): pass\n"
+
+        reducer_seq = Reducer(grammar, auto=True, jobs=1, quiet=True)
+        result_seq = reducer_seq.reduce(source)
+
+        reducer_par = Reducer(grammar, auto=True, jobs=2, quiet=True)
+        result_par = reducer_par.reduce(source)
+
+        assert result_par.source == result_seq.source
+
+    def test_jobs_passed_to_pool(self) -> None:
+        grammar = load_grammar("python")
+        reducer = Reducer(grammar, auto=True, jobs=4, quiet=True)
+        sources = [b"pass\n", b"x = 1\n"]
+        with patch(
+            "theseus_ship.reducer.concurrent.futures.ProcessPoolExecutor"
+        ) as mock_pool:
+            mock_instance = Mock()
+            mock_pool.return_value.__enter__ = Mock(return_value=mock_instance)
+            mock_pool.return_value.__exit__ = Mock(return_value=False)
+            mock_instance.map.return_value = [True, True]
+            results = reducer._test_batch(sources)
+            mock_pool.assert_called_with(max_workers=4)
+            assert results == [True, True]
+
+    def test_sequential_when_jobs_1(self) -> None:
+        grammar = load_grammar("python")
+        reducer = Reducer(grammar, auto=True, jobs=1, quiet=True)
+        sources = [b"pass\n", b"x = 1\n"]
+        results = reducer._test_batch(sources)
+        assert len(results) == 2
+        assert all(isinstance(r, bool) for r in results)
