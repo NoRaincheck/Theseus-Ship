@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import re
 import sys
 from pathlib import Path
 
 from theseus_ship.grammar import detect_language, load_grammar
 from theseus_ship.reducer import Reducer
+from theseus_ship.rules import FixSafety
 
 
 def parse_duration(s: str) -> float:
@@ -26,7 +28,7 @@ def _format_time(seconds: float) -> str:
     return f"{minutes}m {secs}s"
 
 
-def _add_common_args(parser: argparse.ArgumentParser) -> None:
+def _add_reduce_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--lang", help="Override language detection")
     parser.add_argument(
         "-o", "--output", help="Output file path (default: overwrite input)"
@@ -42,9 +44,52 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("-q", "--quiet", action="store_true", help="Suppress output")
 
 
-def _build_parser() -> argparse.ArgumentParser:
+def _build_check_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="theseus-ship",
+        prog="theseus check",
+        description="Analyze files and show reduction suggestions",
+    )
+    parser.add_argument(
+        "files",
+        nargs="*",
+        help="Files or glob patterns to check (e.g. src/**/*.py)",
+    )
+    parser.add_argument(
+        "--fix",
+        action="store_true",
+        help="Apply safe fixes automatically",
+    )
+    parser.add_argument(
+        "--unsafe-fixes",
+        action="store_true",
+        help="Apply all fixes including unsafe ones",
+    )
+    parser.add_argument(
+        "--output-format",
+        choices=["text", "diff", "json"],
+        default="text",
+        help="Output format (default: text)",
+    )
+    parser.add_argument(
+        "--select",
+        help="Only check these rules (comma-separated, e.g. RED100,RED200)",
+    )
+    parser.add_argument(
+        "--ignore",
+        help="Ignore these rules (comma-separated)",
+    )
+    parser.add_argument("--lang", help="Override language detection for all files")
+    parser.add_argument(
+        "-j", "--jobs", type=int, default=1, help="Parallel file processing"
+    )
+    parser.add_argument("-q", "--quiet", action="store_true", help="Suppress output")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+    return parser
+
+
+def _build_reduce_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="theseus reduce",
         description="Syntax-guided program reduction (Perses algorithm)",
     )
 
@@ -71,14 +116,14 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument("input", nargs="?", help="Source file to reduce")
-    _add_common_args(parser)
+    _add_reduce_args(parser)
 
     return parser
 
 
 def _build_shrink_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="theseus-ship shrink",
+        prog="theseus shrink",
         description="Shrinkray-compatible reduction (test <file>)",
     )
     parser.add_argument("test", help="Interestingness test command")
@@ -100,33 +145,135 @@ def _build_shrink_parser() -> argparse.ArgumentParser:
         default=1,
         help="Number of parallel test workers",
     )
-    _add_common_args(parser)
+    _add_reduce_args(parser)
 
     return parser
+
+
+def _expand_files(patterns: list[str]) -> list[Path]:
+    files: list[Path] = []
+    seen: set[str] = set()
+    for pattern in patterns:
+        matches = glob.glob(pattern, recursive=True)
+        if not matches:
+            matches = [pattern]
+        for match in matches:
+            p = Path(match)
+            if p.is_file() and str(p) not in seen:
+                files.append(p)
+                seen.add(str(p))
+    return sorted(files)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if argv is None:
         argv = sys.argv[1:]
 
-    if argv and argv[0] == "shrink":
+    if not argv:
+        parser = _build_reduce_parser()
+        args = parser.parse_args([])
+        args.command = "reduce"
+        return args
+
+    if argv[0] == "check":
+        parser = _build_check_parser()
+        args = parser.parse_args(argv[1:])
+        args.command = "check"
+        return args
+
+    if argv[0] == "reduce":
+        parser = _build_reduce_parser()
+        args = parser.parse_args(argv[1:])
+        args.command = "reduce"
+        return args
+
+    if argv[0] == "shrink":
         parser = _build_shrink_parser()
         args = parser.parse_args(argv[1:])
         args.command = "shrink"
         return args
 
-    parser = _build_parser()
+    parser = _build_reduce_parser()
     args = parser.parse_args(argv)
-    args.command = None
+    args.command = "reduce"
     return args
 
 
 def main() -> None:
     args = parse_args()
-    if args.command == "shrink":
+    if args.command == "check":
+        sys.exit(_run_check(args))
+    elif args.command == "shrink":
         sys.exit(_run_shrink(args))
     else:
-        sys.exit(_run(args))
+        sys.exit(_run_reduce(args))
+
+
+def _run_check(args: argparse.Namespace) -> int:
+    from theseus_ship.checker import ALL_CHECKS
+    from theseus_ship.diff import apply_fixes, format_diff, format_json, format_text
+
+    files = _expand_files(args.files if args.files else ["."])
+    if not files:
+        print("Error: no files matched", file=sys.stderr)
+        return 1
+
+    select_rules = set(args.select.split(",")) if args.select else None
+    ignore_rules = set(args.ignore.split(",")) if args.ignore else set()
+
+    all_suggestions = []
+    for file_path in files:
+        try:
+            source = file_path.read_bytes()
+        except OSError:
+            continue
+
+        try:
+            lang = args.lang or detect_language(str(file_path))
+        except ValueError:
+            continue
+
+        try:
+            grammar = load_grammar(lang)
+        except ValueError:
+            continue
+
+        for check_fn in ALL_CHECKS:
+            try:
+                suggestions = check_fn(source, grammar, str(file_path))
+                for s in suggestions:
+                    if select_rules and s.rule.code not in select_rules:
+                        continue
+                    if s.rule.code in ignore_rules:
+                        continue
+                    all_suggestions.append(s)
+            except Exception:
+                continue
+
+    if not all_suggestions:
+        if not args.quiet:
+            print("All checks passed!")
+        return 0
+
+    if args.output_format == "json":
+        print(format_json(all_suggestions))
+    elif args.output_format == "diff":
+        print(format_diff(all_suggestions))
+    else:
+        print(format_text(all_suggestions))
+
+    if args.fix or args.unsafe_fixes:
+        safety = FixSafety.UNSAFE if args.unsafe_fixes else FixSafety.SAFE
+        fixes = apply_fixes(all_suggestions, safety)
+        for file_path, new_source in fixes.items():
+            Path(file_path).write_bytes(new_source)
+        if not args.quiet:
+            print(
+                f"\nFixed {len(fixes)} file{'s' if len(fixes) != 1 else ''}.",
+                file=sys.stderr,
+            )
+
+    return 1 if all_suggestions else 0
 
 
 def _run_shrink(args: argparse.Namespace) -> int:
@@ -145,10 +292,10 @@ def _run_shrink(args: argparse.Namespace) -> int:
     )
 
 
-def _run(args: argparse.Namespace) -> int:
+def _run_reduce(args: argparse.Namespace) -> int:
     if not args.input:
         print(
-            "Error: input file required (or use: theseus-ship shrink <test> <file>)",
+            "Error: input file required (or use: theseus reduce <file>)",
             file=sys.stderr,
         )
         return 1

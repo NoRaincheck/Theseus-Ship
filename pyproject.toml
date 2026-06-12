@@ -19,6 +19,7 @@ dependencies = [
 ]
 
 [project.scripts]
+theseus = "theseus_ship.cli:main"
 theseus-ship = "theseus_ship.cli:main"
 
 [build-system]

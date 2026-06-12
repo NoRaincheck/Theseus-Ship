@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from theseus_ship.cli import parse_args, parse_duration, _run
+from theseus_ship.cli import parse_args, parse_duration, _run_reduce
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -112,7 +112,7 @@ class TestParseArgs:
 class TestRun:
     def test_file_not_found(self) -> None:
         args = parse_args(["nonexistent.py", "--test-cmd", "true"])
-        assert _run(args) == 1
+        assert _run_reduce(args) == 1
 
     def test_reduce_with_test_cmd(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False) as f:
@@ -124,7 +124,7 @@ class TestRun:
             args = parse_args(
                 [input_path, "--test-cmd", "true", "-o", output_path, "-q"]
             )
-            assert _run(args) == 0
+            assert _run_reduce(args) == 0
             output = Path(output_path).read_bytes()
             assert len(output) <= len(Path(input_path).read_bytes())
         finally:
@@ -143,7 +143,7 @@ class TestRun:
                 [input_path, "--test", test_spec, "-o", output_path, "-q",
                  "--max-tests", "3"]
             )
-            assert _run(args) == 0
+            assert _run_reduce(args) == 0
             output = Path(output_path).read_bytes()
             assert b"fibonacci" in output
         finally:
@@ -157,7 +157,7 @@ class TestRun:
 
         try:
             args = parse_args([input_path, "--test-cmd", "true", "-q"])
-            assert _run(args) == 0
+            assert _run_reduce(args) == 0
         finally:
             Path(input_path).unlink(missing_ok=True)
 
@@ -169,7 +169,7 @@ class TestRun:
         output_path = input_path + ".reduced"
         try:
             args = parse_args([input_path, "--auto", "-o", output_path, "-q"])
-            assert _run(args) == 0
+            assert _run_reduce(args) == 0
             output = Path(output_path).read_bytes()
             assert len(output) <= len(Path(input_path).read_bytes())
             assert b"pass" not in output
