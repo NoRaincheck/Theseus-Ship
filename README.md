@@ -52,6 +52,84 @@ uv run theseus-ship --test "./check.sh" input.js
 uv run theseus-ship --test "./check.sh" --max-time 30m --max-tests 1000 input.py
 ```
 
+## Example
+
+Given a Python file that triggers a bug when `fibonacci` is called with `print()`:
+
+**Before** (`input.py`):
+```python
+import sys
+
+def fibonacci(n):
+    if n <= 1:
+        return n
+    return fibonacci(n - 1) + fibonacci(n - 2)
+
+def unused_helper(x):
+    return x * 2
+
+def also_unused():
+    result = unused_helper(5)
+    return result
+
+class MyClass:
+    def __init__(self):
+        self.value = 42
+
+    def method(self):
+        return self.value
+
+if __name__ == "__main__":
+    for i in range(10):
+        print(fibonacci(i))
+```
+
+Run with an interestingness test that checks for `def fibonacci` and `print(`:
+```bash
+uv run theseus-ship --test "python3 check.py" input.py
+```
+
+**After** (`input.py`):
+```python
+def fibonacci(n):
+    if n <= 1:
+        return n
+    return fibonacci(n - 1) + fibonacci(n - 2)
+
+print(fibonacci(10))
+```
+
+**Diff:**
+```diff
+-import sys
+-
+ def fibonacci(n):
+     if n <= 1:
+         return n
+     return fibonacci(n - 1) + fibonacci(n - 2)
+ 
+-def unused_helper(x):
+-    return x * 2
+-
+-def also_unused():
+-    result = unused_helper(5)
+-    return result
+-
+-class MyClass:
+-    def __init__(self):
+-        self.value = 42
+-
+-    def method(self):
+-        return self.value
+-
+-if __name__ == "__main__":
+-    for i in range(10):
+-        print(fibonacci(i))
++print(fibonacci(10))
+```
+
+The reducer removed the unused `import sys`, the `unused_helper` and `also_unused` functions, the `MyClass` class, and simplified the `if __name__` block — while preserving the core `fibonacci` function and the `print()` call that triggers the bug.
+
 ## Development
 
 ```bash
