@@ -26,6 +26,14 @@ class TestGrammar:
         kinds = grammar.unwrap_compatible_kinds("block")
         assert "block" in kinds
 
+    def test_is_protected_node_comment(self) -> None:
+        grammar = load_grammar("python")
+        assert grammar.is_protected_node("comment") is True
+
+    def test_is_protected_node_normal(self) -> None:
+        grammar = load_grammar("python")
+        assert grammar.is_protected_node("assignment") is False
+
 
 class TestDetectLanguage:
     def test_python(self) -> None:

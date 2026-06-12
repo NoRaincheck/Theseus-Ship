@@ -101,6 +101,33 @@ class TestGenerateCandidates:
         token_counts = [c.target.token_count for c in candidates]
         assert token_counts == sorted(token_counts, reverse=True)
 
+    def test_comments_not_deleted(self) -> None:
+        grammar = load_grammar("python")
+        source = b"# important comment\nx = 1\n"
+        result = parse_source(source, grammar)
+        candidates = generate_candidates(result, grammar)
+
+        delete_candidates = [c for c in candidates if c.kind == TransformKind.DELETE]
+        comment_deletes = [
+            c for c in delete_candidates if c.target.kind == "comment"
+        ]
+        assert len(comment_deletes) == 0
+
+    def test_multiple_comments_preserved(self) -> None:
+        grammar = load_grammar("python")
+        source = b"# first\n# second\n# third\nx = 1\n"
+        result = parse_source(source, grammar)
+        candidates = generate_candidates(result, grammar)
+
+        comment_nodes = [n for n in result.all_nodes if n.kind == "comment"]
+        assert len(comment_nodes) == 3
+
+        delete_candidates = [c for c in candidates if c.kind == TransformKind.DELETE]
+        comment_deletes = [
+            c for c in delete_candidates if c.target.kind == "comment"
+        ]
+        assert len(comment_deletes) == 0
+
 
 class TestResultErrorCount:
     def test_no_errors(self) -> None:

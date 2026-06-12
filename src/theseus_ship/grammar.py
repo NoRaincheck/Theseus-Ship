@@ -6,6 +6,7 @@ from typing import Any
 from tree_sitter import Language
 
 _ERROR_KINDS: frozenset[str] = frozenset({"ERROR", "MISSING", "UNEXPECTED_TOKEN"})
+_PROTECTED_KINDS: frozenset[str] = frozenset({"comment"})
 
 
 class Grammar:
@@ -25,6 +26,9 @@ class Grammar:
 
     def is_error_node(self, kind: str) -> bool:
         return kind in _ERROR_KINDS
+
+    def is_protected_node(self, kind: str) -> bool:
+        return kind in _PROTECTED_KINDS
 
     def unwrap_compatible_kinds(self, node_kind: str) -> frozenset[str]:
         return frozenset({node_kind})

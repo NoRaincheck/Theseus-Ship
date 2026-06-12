@@ -15,7 +15,7 @@ def generate_candidates(
         if node.byte_start == root.byte_start and node.byte_end == root.byte_end:
             continue
 
-        if not node.has_errors:
+        if not node.has_errors and not grammar.is_protected_node(node.kind):
             candidates.append(
                 TransformCandidate(target=node, kind=TransformKind.DELETE)
             )
