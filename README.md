@@ -1,5 +1,9 @@
 # nappe
 
+> **nappe** (French: _to reduce, to coat_) — in cooking, _réduction nappe_ is the
+> technique of simmering a liquid until it thickens enough to coat the back of a
+> spoon. Here, nappe reduces a program until only the essential core remains.
+
 A syntax-guided test case reducer implementing the
 [Perses](https://doi.org/10.1145/3180155.3180236) algorithm (Sun et al., ICSE 2018).
 
