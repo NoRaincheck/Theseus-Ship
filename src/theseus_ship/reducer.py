@@ -37,18 +37,20 @@ class Reducer:
         grammar: Grammar,
         test_spec: str | None = None,
         test_command: str | None = None,
+        auto: bool = False,
         max_time: float | None = None,
         max_tests: int | None = None,
         jobs: int = 1,
         verbose: bool = False,
         quiet: bool = False,
     ) -> None:
-        if test_spec is None and test_command is None:
-            msg = "Either test_spec or test_command must be provided"
+        if not auto and test_spec is None and test_command is None:
+            msg = "Either test_spec, test_command, or auto=True must be provided"
             raise ValueError(msg)
         self._grammar = grammar
         self._test_spec = test_spec
         self._test_command = test_command
+        self._auto = auto
         self._max_time = max_time
         self._max_tests = max_tests
         self._jobs = jobs
@@ -117,13 +119,19 @@ class Reducer:
 
         self._tests_run += 1
 
-        if self._test_spec is not None:
+        if self._auto:
+            is_interesting = self._is_interesting_auto(source)
+        elif self._test_spec is not None:
             is_interesting = self._is_interesting_pytest(source)
         else:
             is_interesting = self._is_interesting_command(source)
 
         self._cache.set(source, is_interesting)
         return is_interesting
+
+    def _is_interesting_auto(self, source: bytes) -> bool:
+        result = parse_source(source, self._grammar)
+        return result.error_node_count == 0
 
     def _is_interesting_pytest(self, source: bytes) -> bool:
         assert self._test_spec is not None

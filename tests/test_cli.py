@@ -44,6 +44,17 @@ class TestParseArgs:
         assert args.test is None
         assert args.test_cmd == "grep -q error"
 
+    def test_auto_flag(self) -> None:
+        args = parse_args(["test.py", "--auto"])
+        assert args.input == "test.py"
+        assert args.auto is True
+        assert args.test is None
+        assert args.test_cmd is None
+
+    def test_auto_mutually_exclusive_with_test(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(["test.py", "--auto", "--test", "foo.py"])
+
     def test_all_flags(self) -> None:
         args = parse_args(
             [
@@ -150,6 +161,22 @@ class TestRun:
         finally:
             Path(input_path).unlink(missing_ok=True)
 
+    def test_reduce_auto_mode(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False) as f:
+            f.write("def unused(): pass\ndef used(): return 42\nprint(used())\n")
+            input_path = f.name
+
+        output_path = input_path + ".reduced"
+        try:
+            args = parse_args([input_path, "--auto", "-o", output_path, "-q"])
+            assert _run(args) == 0
+            output = Path(output_path).read_bytes()
+            assert len(output) <= len(Path(input_path).read_bytes())
+            assert b"pass" not in output
+        finally:
+            Path(input_path).unlink(missing_ok=True)
+            Path(output_path).unlink(missing_ok=True)
+
 
 @pytest.mark.slow
 class TestCLIEntryPoint:
@@ -163,3 +190,4 @@ class TestCLIEntryPoint:
         assert "theseus-ship" in result.stdout
         assert "--test" in result.stdout
         assert "--test-cmd" in result.stdout
+        assert "--auto" in result.stdout

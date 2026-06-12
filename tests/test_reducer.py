@@ -133,3 +133,39 @@ class TestReduce:
             assert False, "Should raise ValueError"
         except ValueError:
             pass
+
+
+class TestAutoMode:
+    def test_no_test_required(self) -> None:
+        grammar = load_grammar("python")
+        reducer = Reducer(grammar, auto=True)
+        assert reducer._auto is True
+
+    def test_auto_reduces_valid_program(self) -> None:
+        grammar = load_grammar("python")
+        source = b"def foo(): pass\ndef bar(): pass\n"
+        reducer = Reducer(grammar, auto=True, quiet=True)
+        result = reducer.reduce(source)
+        assert len(result.source) <= len(source)
+        from theseus_ship.parser import parse_source
+
+        final = parse_source(result.source, grammar)
+        assert final.error_node_count == 0
+
+    def test_auto_preserves_syntax(self) -> None:
+        grammar = load_grammar("python")
+        source = b"def fibonacci(n):\n    if n <= 1:\n        return n\n    return fibonacci(n - 1) + fibonacci(n - 2)\n\ndef unused():\n    x = 1\n    return x\n"
+        reducer = Reducer(grammar, auto=True, quiet=True)
+        result = reducer.reduce(source)
+        from theseus_ship.parser import parse_source
+
+        final = parse_source(result.source, grammar)
+        assert final.error_node_count == 0
+
+    def test_auto_noop_on_invalid_start(self) -> None:
+        grammar = load_grammar("python")
+        source = b"def (invalid:\n"
+        reducer = Reducer(grammar, auto=True, quiet=True)
+        result = reducer.reduce(source)
+        assert result.source == source
+        assert result.tests_run > 0

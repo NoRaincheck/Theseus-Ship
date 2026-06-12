@@ -57,6 +57,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--test-cmd",
         help="Shell command (exit 0 = interesting, receives source on stdin)",
     )
+    test_group.add_argument(
+        "--auto",
+        action="store_true",
+        help="Reduce to smallest syntactically valid program (no test needed)",
+    )
 
     parser.add_argument("input", nargs="?", help="Source file to reduce")
     _add_common_args(parser)
@@ -141,8 +146,8 @@ def _run(args: argparse.Namespace) -> int:
         )
         return 1
 
-    if not args.test and not args.test_cmd:
-        print("Error: --test or --test-cmd required", file=sys.stderr)
+    if not args.test and not args.test_cmd and not args.auto:
+        print("Error: --test, --test-cmd, or --auto required", file=sys.stderr)
         return 1
 
     input_path = Path(args.input)
@@ -165,6 +170,7 @@ def _run(args: argparse.Namespace) -> int:
         grammar=grammar,
         test_spec=args.test,
         test_command=args.test_cmd,
+        auto=args.auto,
         max_time=args.max_time,
         max_tests=args.max_tests,
         jobs=args.jobs,
