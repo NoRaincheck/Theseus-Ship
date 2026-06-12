@@ -85,6 +85,15 @@ if __name__ == "__main__":
 ```
 
 Run with an interestingness test that checks for `def fibonacci` and `print(`:
+
+`check.py`:
+```python
+import sys
+
+content = sys.stdin.read()
+sys.exit(0 if "def fibonacci" in content and "print(" in content else 1)
+```
+
 ```bash
 uv run theseus-ship --test "python3 check.py" input.py
 ```
