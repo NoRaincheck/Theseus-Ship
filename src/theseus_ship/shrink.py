@@ -23,19 +23,13 @@ class ShrinkResult:
 
 class ShrinkCache:
     def __init__(self) -> None:
-        self._results: dict[str, bool] = {}
+        self._results: dict[int, bool] = {}
 
     def get(self, source: bytes) -> bool | None:
-        import hashlib
-
-        key = hashlib.sha256(source).hexdigest()
-        return self._results.get(key)
+        return self._results.get(hash(source))
 
     def set(self, source: bytes, result: bool) -> None:
-        import hashlib
-
-        key = hashlib.sha256(source).hexdigest()
-        self._results[key] = result
+        self._results[hash(source)] = result
 
 
 class ShrinkReducer:
@@ -58,6 +52,7 @@ class ShrinkReducer:
     ) -> None:
         self._grammar = grammar
         self._test_command = test_command
+        self._cmd_parts = shlex.split(test_command)
         self._timeout = timeout
         self._max_time = max_time
         self._max_tests = max_tests
@@ -83,6 +78,7 @@ class ShrinkReducer:
             if not candidates:
                 break
 
+            base_error_count = result.error_node_count
             accepted = False
             for candidate in candidates:
                 if self._should_stop(self._tests_run, start_time):
@@ -93,6 +89,7 @@ class ShrinkReducer:
                     candidate,
                     self._grammar,
                     root_node=result.root_node,
+                    base_error_count=base_error_count,
                 )
                 if new is None:
                     continue
@@ -130,29 +127,30 @@ class ShrinkReducer:
 
         self._tests_run += 1
 
-        with tempfile.NamedTemporaryFile(mode="wb", suffix=".py", delete=False) as f:
-            f.write(source)
-            temp_path = f.name
-
         try:
-            cmd_parts = shlex.split(self._test_command)
+            fd, temp_path = tempfile.mkstemp(suffix=".py")
+            try:
+                os.write(fd, source)
+                os.close(fd)
 
-            proc = subprocess.run(
-                cmd_parts + [temp_path],
-                input=source,
-                capture_output=True,
-                timeout=self._timeout,
-            )
-            is_interesting = proc.returncode == 0
-        except subprocess.TimeoutExpired:
-            is_interesting = False
+                proc = subprocess.run(
+                    self._cmd_parts + [temp_path],
+                    input=source,
+                    capture_output=True,
+                    timeout=self._timeout,
+                )
+                is_interesting = proc.returncode == 0
+            except subprocess.TimeoutExpired:
+                is_interesting = False
+            except Exception:
+                is_interesting = False
+            finally:
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
         except Exception:
             is_interesting = False
-        finally:
-            try:
-                os.unlink(temp_path)
-            except OSError:
-                pass
 
         self._cache.set(source, is_interesting)
         return is_interesting

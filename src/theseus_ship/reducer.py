@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import os
 import shlex
 import subprocess
@@ -23,15 +22,13 @@ class ReduceResult:
 
 class _Cache:
     def __init__(self) -> None:
-        self._results: dict[str, bool] = {}
+        self._results: dict[int, bool] = {}
 
     def get(self, source: bytes) -> bool | None:
-        key = hashlib.sha256(source).hexdigest()
-        return self._results.get(key)
+        return self._results.get(hash(source))
 
     def set(self, source: bytes, result: bool) -> None:
-        key = hashlib.sha256(source).hexdigest()
-        self._results[key] = result
+        self._results[hash(source)] = result
 
 
 class Reducer:
@@ -72,13 +69,18 @@ class Reducer:
             if not candidates:
                 break
 
+            base_error_count = result.error_node_count
             accepted = False
             for candidate in candidates:
                 if self._should_stop(self._tests_run, start_time):
                     break
 
                 new = apply_transform(
-                    current_source, candidate, self._grammar, root_node=result.root_node
+                    current_source,
+                    candidate,
+                    self._grammar,
+                    root_node=result.root_node,
+                    base_error_count=base_error_count,
                 )
                 if new is None:
                     continue

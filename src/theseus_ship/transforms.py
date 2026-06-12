@@ -52,6 +52,7 @@ def apply_transform(
     candidate: TransformCandidate,
     grammar: Grammar,
     root_node: NodeInfo | None = None,
+    base_error_count: int | None = None,
 ) -> tuple[bytes, ParseResult] | None:
     target = candidate.target
 
@@ -61,6 +62,9 @@ def apply_transform(
             and target.byte_end == root_node.byte_end
         ):
             return None
+
+    if target.byte_start == target.byte_end:
+        return None
 
     if candidate.kind == TransformKind.DELETE:
         new_source = apply_delete(source, target)
@@ -89,7 +93,9 @@ def apply_transform(
 
     new_result = parse_source(new_source, grammar)
 
-    if new_result.error_node_count > result_error_count(source, grammar):
+    if base_error_count is None:
+        base_error_count = result_error_count(source, grammar)
+    if new_result.error_node_count > base_error_count:
         return None
 
     return new_source, new_result
